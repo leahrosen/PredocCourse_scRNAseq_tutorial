@@ -53,7 +53,7 @@ In R:
 
     -   Does not always contain the best method
 
--   OSCA: A collection of packages including scran,
+-   OSCA: A collection of bioconductor packages including scran,
     SingleCellExperiment, and batchelor
 
     -   A lot harder to get comfortable with
@@ -478,6 +478,12 @@ p <- ggplot(data=to.plot, mapping = aes(x=means, y=variance, colour=hvg)) +
 print(p)
 ```
 
+## Discussion
+
+-   How do you choose HVGs?
+
+-   How many HVGs should we use?
+
 # Scaling the Data
 
 -   Standardisation: All features (genes) have mean of 0 and unit
@@ -497,13 +503,14 @@ print(p)
     -   Biases towards number of differentially expressed genes
 
 -   Personally, I think the cons outweigh the pros, but Seurat forces us
-    to use it
+    to use it. To avoid it, Donnacha has a hack.
 
 -   Further discussion:
     <https://ltla.github.io/SingleCellThoughts/general/standardization.html>
 
 ```{r, ScaleData, fig.height=4, fig.width=4}
 pbmc3k <- ScaleData(pbmc3k)
+#pbmc3k@assays$SCT@scale.data <- pbmc3k@assays$SCT@data@x
 
 means <- rowMeans(pbmc3k@assays$SCT@scale.data)
 variance <- rowVars(pbmc3k@assays$SCT@scale.data)
@@ -559,7 +566,7 @@ How?
 pbmc3k <- RunPCA(pbmc3k, verbose=FALSE)
 pbmc3k <- FindNeighbors(pbmc3k, k.param=10, reduction = "pca")
 pbmc3k <- FindClusters(pbmc3k, resolution = 0.5)
-p <- ggplot(data=as.data.table(pbmc3k@meta.data)[,.N,by="seurat_clusters"], mapping = aes(x=seurat_clusters, y=N)) +
+p <- ggplot(data=as.data.table(pbmc3k@meta.data)[,.N,by="seurat_clusters"], mapping = aes(x=seurat_clusters, y=N, fill=seurat_clusters)) +
   geom_bar(stat="identity") +
   labs(x="Cluster Number", y="Number of Cells in that Cluster") +
   theme_classic()
@@ -584,6 +591,16 @@ dimensions:
 pbmc3k <- RunUMAP(pbmc3k, dims = 1:10)
 DimPlot(pbmc3k, reduction = "umap")
 ```
+
+## Discussion
+
+-   How much information can we get from the UMAP? And when should we be
+    careful?
+
+-   How can we evaluate if the UMAP is doing a good job?
+
+Fun with UMAPs: UMAP zoo:
+<https://duhaime.s3.amazonaws.com/apps/umap-zoo/index.html>
 
 # Celltype Annotation
 
@@ -621,6 +638,9 @@ DimPlot(pbmc3k, reduction = "umap", group.by = "seurat_annotations")
 ### Side note: Differential Expression Testing
 
 DONNACHA, DO YOU WANT TO DO THIS? Otherwise I can.
+
+Pseudobulk in edgeR. Why not all vs all (not independent replicates,
+absurdly small p-values)
 
 ## Method 2: Using a Reference Atlas
 
