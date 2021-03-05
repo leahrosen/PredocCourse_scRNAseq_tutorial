@@ -1,20 +1,29 @@
 ---
 title: "scRNA-seq Tutorial"
-author: "Leah Rosen"
-date: "01/11/2020"
+author: "Leah Rosen, Donnacha Fitzgerald, Constantin Ahlmann-Eltze"
+date: "04/03/2021"
 output:
   pdf_document: default
   html_document:
     df_print: paged
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
-This tutorial roughly follows the Seurat pbms3k_tutorial: https://satijalab.org/seurat/v3.2/pbmc3k_tutorial.html with some of my own additions. For more Seurat tutorials see: https://satijalab.org/seurat/vignettes.html
+This tutorial roughly follows the Seurat pbms3k_tutorial:
+<https://satijalab.org/seurat/v3.2/pbmc3k_tutorial.html> with some of my
+own additions. For more Seurat tutorials see:
+<https://satijalab.org/seurat/vignettes.html>
 
-We will be using some [tidyverse](www.tidyverse.org) and data.table packages. A nice blogpost outlining these is: https://wetlandscapes.com/blog/a-comparison-of-r-dialects/
+We will be using some [tidyverse](www.tidyverse.org) and data.table
+packages. A nice blogpost outlining these is:
+<https://wetlandscapes.com/blog/a-comparison-of-r-dialects/>
 
 # Installs
 
-This chunk of code will install the packages. You will only need to run it once.
+This chunk of code will install the packages. You will only need to run
+it once.
 
 ```{r, installs, results='hide'}
 #install.packages("Seurat")
@@ -27,11 +36,37 @@ This chunk of code will install the packages. You will only need to run it once.
 #if (!requireNamespace("BiocManager", quietly = TRUE))
 #    install.packages("BiocManager")
 #BiocManager::install("SingleCellExperiment")
+#BiocManager::install("glmGamPoi")
 #BiocManager::install("scds")
 #install.packages("useful")
 ```
 
 # Imports
+
+There are 3 main frameworks for scRNA-seq data analysis
+
+In R:
+
+-   Seurat
+
+    -   Simple, but somewhat restrictive
+
+    -   Does not always contain the best method
+
+-   OSCA: A collection of packages including scran,
+    SingleCellExperiment, and batchelor
+
+    -   A lot harder to get comfortable with
+
+    -   More flexible
+
+In python:
+
+-   Scanpy
+
+It is useful to switch between frameworks to use the "best" method.
+Today we'll be mainly using Seurat, but switch to OSCA for doublet
+detection
 
 First, we want to import the packages we will be using.
 
@@ -39,45 +74,142 @@ First, we want to import the packages we will be using.
 library(Seurat)
 library(SeuratData)
 library(gridExtra)
-library(data.table)
 library(ggplot2)
+library(data.table)
 library(SingleCellExperiment)
 library(scds)
 library(useful)
 ```
 
+# Overview of a Typical scRNA-seq Pipeline
+
+A typical scRNA-seq pipeline involves 4 preprocessing steps
+
+1.  Quality Control
+
+2.  Variance Stabilising Transformation
+
+3.  Highly Variable Gene Selection **\<- CONSTANTIN PLEASE EDIT**
+
+4.  Optional: Scaling
+
+We will discuss these various steps today.
+
+Further steps that we can do with the data are:
+
+-   Clustering
+
+-   Visualisation
+
+-   Celltype Assignment. 2 Approaches:
+
+    -   Marker Gene Selection **\<- DONNACHA? + a side-note on DE
+        analysis**
+
+    -   Reference-based
+
+-   Data integration/Batch Effect Correction \<- **LEAH TO DO**
+
 # Load data
 
-The dataset we are using today is one of Seurat's example datasets. It is 2700 human peripheral blood mononucleiated cells, sequenced using 10X genomics v1.
+We will be working with a toy dataset from 10X Genomics.
 
-**Note: getting the error: "no slot of name "images" for this object of class "Seurat"" is totally normal. Don't worry if you get that.**
+10X Genomics
+
+-   Most widely used sequencing technology today, due to good
+    throughput-coverage ratio
+
+-   Up to 10,000 cells per library
+
+-   \~3,500 genes per cell
+
+-   \~20,000 UMIs per cell
+
+    -   UMI - "unique molecular identifier"
+
+    -   Each poly-adenylated RNA molecule is given a unique barcode
+        (UMI)
+
+    -   UMI control for PCR amplification bias
+
+![](images/paste-646D5F77.png)
+
+![](images/paste-07150A5C.png){width="225"}
+
+This dataset:
+
+-   2,700 Cells
+
+-   Species: Human
+
+-   Sample: Peripheral Blood Mononucleated Cells (PBMCs)
+
+-   Note: This is a toy dataset, down-sampled so everything runs quickly
+
+![](images/paste-1020755D.png)
+
+**Note: getting the error: "no slot of name "images" for this object of
+class "Seurat"" is totally normal. Don't worry if you get that.**
+
 ```{r, Data}
 data("pbmc3k")
 pbmc3k
 ```
 
-As you can see, we have now loaded a dataset with 2700 samples (i.e. cells) across 13714 features (i.e. genes). We have one "active assay", meaning we have RNA data. We can access this assay and look at the count matrix (the "head" function means that we are only displaying the first 6 rows):
+As you can see, we have now loaded a dataset with 2700 samples (i.e.
+cells) across 13714 features (i.e. genes). We have one "active assay",
+meaning we have RNA data. We can access this assay and look at the count
+matrix (the "head" function means that we are only displaying the first
+6 rows):
 
 ```{r, ShowData}
 corner(as.matrix(pbmc3k@assays$RNA@counts))
 ```
 
-We also have a metadata file that gives us some information about each cell (again, we're displaying the first 6 cells)
+We also have a metadata file that gives us some information about each
+cell (again, we're displaying the first 6 cells)
 
 ```{r, ShowMetaData}
 head(pbmc3k@meta.data)
 ```
 
+# 
+
 # Quality Control the data
 
-The 5 things we check when QCing a cell are:
-* the number of transcripts captured (automatically saved as nCount_RNA in the metadata table)
-* the number of unique genes captured  (automatically saved as nFeature_RNA in the metadata table)
-* the percentage of the counts that come from mitochondrial genes (we will need to calculate this)
-* the percentage of the counts that come from ribosomal transcritps (we will need to calculate this), I think these are captured due to cryptic polyadenylation (but don't quote me on this)
-* whether a cell is a doublet
+What do we need to check for?
 
-First, calculating the percecnt mito and percent ribo:
+-   Doublets: These cells have many UMIs, many genes
+
+-   Stripped nuclei: These cells have few UMIs, few genes, low
+    mitochondrial proportions
+
+-   Low quality cells (e.g., due to inefficient reverse transcription or
+    PCR amplification): These cells have few UMIs, few genes, high
+    mitochondrial proportions
+
+Why do we need to remove these cells? Artefacts could obscure true
+underlying biology
+
+Therefore 5 things we check when QCing a cell are:
+
+-   The number of transcripts captured (automatically saved as
+    nCount_RNA in the metadata table)
+
+-   The number of unique genes captured (automatically saved as
+    nFeature_RNA in the metadata table)
+
+-   The percentage of the counts that come from mitochondrial genes (we
+    will need to calculate this)
+
+-   The percentage of the counts that come from ribosomal transcripts
+    (we will need to calculate this), I think these are captured due to
+    cryptic polyadenylation (but don't quote me on this)
+
+-   Whether a cell is a doublet
+
+## 1. Calculate mitochondrial and ribosomal percentage
+
 ```{r, percent_mt_ribo}
 # calculate percent counts from mitochondrial genes
 pbmc3k[["percent.mt"]] <- PercentageFeatureSet(pbmc3k, pattern = "MT-")
@@ -88,39 +220,31 @@ ribo.genes <- c(grep(pattern = "^RPL", x = rownames(pbmc3k), value = TRUE),grep(
 pbmc3k[["percent.ribo"]] <- PercentageFeatureSet(pbmc3k, features = ribo.genes)
 ```
 
-Note that the pattern can depend on your core or your organism. E.g. if you are given the genes as Ensembl IDs, you will first have to convert them to symbols. Or, if you're working in mouse, the genes aren't all caps, so you'll have to use "MT-" and "^Rpl", "^Rps".
+Note that the pattern can depend on your core or your organism. E.g. if
+you are given the genes as Ensembl IDs, you will first have to convert
+them to symbols. Or, if you're working in mouse, the genes aren't all
+caps, so you'll have to use "mt-" and "\^Rpl", "\^Rps".
 
-Let's plot the QC metrics:
+## 2. Plot QC metrics (number of genes, number of UMIs, percent mito, percent ribo)
+
 ```{r, plot_QC_pre, fig.height=4, fig.width=16}
-min_nFeature_RNA <- 500
-min_nCount_RNA <- 1250
-min_percent.mt <- 0.5
-max_percent.mt <- 5
-
 pbmc3k@meta.data$barcode <- rownames(pbmc3k@meta.data)
 md <- pbmc3k@meta.data
 
 p1 <- (ggplot(md, aes(x=nFeature_RNA)) +
   geom_density(fill="#e9ecef", position = 'identity') +
   labs(fill="") +
-  geom_vline(xintercept=min_nFeature_RNA) +
-  ggtitle(paste0("min=", min_nFeature_RNA)) +
   theme_classic())
 
 p2 <- (ggplot(md, aes(x=nCount_RNA)) +
   geom_density(fill="#e9ecef", position = 'identity') +
   labs(fill="") +
-  geom_vline(xintercept=min_nCount_RNA) +
-  ggtitle(paste0("min=", min_nCount_RNA)) +
   scale_x_continuous(trans='log2') +
   theme_classic())
 
 p3 <- (ggplot(md, aes(x=percent.mt)) +
   geom_density(fill="#e9ecef", position = 'identity') +
   labs(fill="") +
-  geom_vline(xintercept=min_percent.mt) +
-  geom_vline(xintercept=max_percent.mt) +
-  ggtitle(paste0("min=", min_percent.mt, ", max=", max_percent.mt)) +
   scale_x_continuous(trans='log2') +
   theme_classic())
 
@@ -132,7 +256,17 @@ p4 <- (ggplot(md, aes(x=percent.ribo)) +
 grid.arrange(p1, p2, p3, p4, ncol=4)
 ```
 
+## 3. Threshold the cells
+
+Note that using a fixed threshold is the easiest method, but it isn't
+necessarily the best. There are methods for "adaptive thresholds".
+
 ```{r, FirstQC, warning=FALSE}
+min_nFeature_RNA <- 500
+min_nCount_RNA <- 1250
+min_percent.mt <- 0.5
+max_percent.mt <- 5
+
 md$barcode <- row.names(md)
 md <- as.data.table(pbmc3k@meta.data)
 md$pass_QC <- TRUE
@@ -142,7 +276,11 @@ md[percent.mt < min_percent.mt, pass_QC := FALSE]
 md[percent.mt > max_percent.mt, pass_QC := FALSE]
 ```
 
-Let's plot the QC metrics splitting cells depending on whether they pass QC:
+## 4. Plot QC metrics for removed vs. retained cells
+
+Let's plot the QC metrics splitting cells depending on whether they pass
+QC:
+
 ```{r, plot_QC_post, fig.height=4, fig.width=24}
 p1 <- (ggplot(md, aes(x=nFeature_RNA, fill=pass_QC)) +
   geom_density(alpha=0.4, position = 'identity') +
@@ -176,9 +314,32 @@ p4 <- (ggplot(md, aes(x=percent.ribo, fill=pass_QC)) +
 grid.arrange(p1, p2, p3, p4, ncol=4)
 ```
 
-## Doublet Detection
+## 5. Doublet Detection
 
-Next, let's search for doublets. As far as I know, Seurat has no good inbuilt method for doing this. A good comparison of methods is [this](https://doi.org/10.1093/bioinformatics/btz698) paper. When benchmarking methods myself, I found their hybrid method worked best + 1 round of guilt-by-association, where I remove any cells that are very similar to cells called as doublets. Their method takes the data in a different format, so we need to conver the data from Seurat to SingleCellExperiment
+Theory:
+
+-   Simply thresholding cells with many UMIs and genes isn't enough
+
+-   Many methods exist for detecting doublets in silico, most take one
+    of two approaches:
+
+    -   Co-expression of genes that usually don't co-express
+
+    -   Simulation of doublets by combining random cells
+
+-   New technologies allow for identifying doublets in the data
+
+-   Based on data from my group, many undetected doublets
+
+-   *in silico* methods especially struggle with intra-cluster doublets
+
+As far as I know, Seurat has no good inbuilt method for doing this. A
+good comparison of methods is
+[this](https://doi.org/10.1093/bioinformatics/btz698) paper. When
+benchmarking methods myself, I found their hybrid method worked best.
+Their method takes the data in a different format, so we need to convert
+the data from Seurat to SingleCellExperiment
+
 ```{r, DoubletDetection}
 pbmc3k <- subset(pbmc3k, subset = nFeature_RNA>min_nFeature_RNA & nCount_RNA>min_nCount_RNA & percent.mt>min_percent.mt & percent.mt<max_percent.mt)
 
@@ -193,9 +354,16 @@ pbmc3k <- AddMetaData(
 pbmc3k <- subset(pbmc3k, subset = doublet==FALSE)
 ```
 
-
 ### a side note
-On my own data, I don't find this to be enough. When I was able to have more of a ground truth doublet calling (using cell hashing and genotyping) I found that this only got me to a TPR of 41% (on differentating cell line data), and 50% (on differentiating mESC data). Therefore, I remove any cells that are similar to called doublets, and thereby was able to get my TPR to 82% and 79%, respectively. This step completely overkills on this toy dataset, but I'll include my code here, in case you want to try it in the future:
+
+On my own data, I don't find this to be enough. When I was able to have
+more of a ground truth doublet calling (using cell hashing and
+genotyping) I found that this only got me to a TPR of 41% (on
+differentating cell line data), and 50% (on differentiating mESC data).
+Therefore, I remove any cells that are similar to called doublets, and
+thereby was able to get my TPR to 82% and 79%, respectively. This step
+completely overkills on this toy dataset, but I'll include my code here,
+in case you want to try it in the future:
 
 ```{r, further_doublet_calling, eval=FALSE}
 pbmc3k <- NormalizeData(pbmc3k)
@@ -215,7 +383,50 @@ md[hybrid_map<=((sum(md$hybrid_call==TRUE))/(dim(md)[1])), hybrid_call2 := FALSE
 rownames(md) <- md$cell
 ```
 
+## Discussion
+
+-   How to choose thresholds?
+
+-   How do we know that we're not removing biologically meaningful
+    cells? (e.g. a very transcriptionally inactive population)
+
 # Variance Stabilising Transformation
+
+-   Single cell data has a mean-variance relationship, as shown below:
+    Genes with high means, vary a lot regardless of whether they are
+    biologically meaningful in your system
+
+-   Basic method is log normalisation:
+
+    -   Stabilises variance (no need for complex statistical models
+        downstream)
+
+    -   Enables normal assumptions in downstream methods
+
+    -   Further discussion:
+        <https://ltla.github.io/SingleCellThoughts/general/transformation.html>
+
+-   Another approach is modelling the distribution the data came from:
+    Negative Binomial or Gamma-Poisson
+
+-   Scaling
+
+    -   Seurat also scales each cell's counts by a scale factor before
+        normalisation
+
+    -   scran uses more sophisticated methods of estimating scale factor
+
+    -   Goal: remove library size-dependent differences in variance
+
+    -   References:
+
+        -   Hafemeister and Satija, 2019 (Genome Biology)
+
+        -   <https://bioconductor.org/packages/release/bioc/vignettes/scran/inst/doc/scran.html#3_Normalizing_cell-specific_biases>
+
+        -   Lun, Bach, and Marioni, 2016 (Genome Biology)
+
+-   NOTE CONSTANTIN CAN YOU CONTINUE THIS PART? Does SCTransform scale?
 
 ```{r, Mean_Variance_Relationship, fig.height=4, fig.width=4}
 means <- rowMeans(as.matrix(pbmc3k@assays$RNA@counts))
@@ -225,24 +436,40 @@ print(p1)
 ```
 
 ```{r, Normalisation, fig.height=4, fig.width=4}
-pbmc3k <- NormalizeData(pbmc3k, normalization.method = "LogNormalize")
+pbmc3k <- SCTransform(pbmc3k, method="glmGamPoi",verbose=FALSE)
+#pbmc3k <- NormalizeData(pbmc3k, normalization.method = "LogNormalize")
 
-means <- rowMeans(pbmc3k@assays$RNA@data)
-variance <- rowVars(pbmc3k@assays$RNA@data)
+means <- rowMeans(pbmc3k@assays$SCT@data)
+variance <- rowVars(pbmc3k@assays$SCT@data)
 p <- plot(means, variance)
 print(p)
 ```
 
-Does the log normalisation solve the problem? Are we still biasing towards a certain type of gene?
+## Discussion
+
+-   Where does the VST work well?
+
+-   Which genes does the VST work poorly for?
+
+-   When may we want to use count data instead?
+
+-   Are the data still sparse? What's the benefit of sparse data?
 
 # Highly Variable Gene Selection
+
+-   \~30,000 protein-coding genes in mice and men
+
+-   Most genes don't vary systematically between cells
+
+-   Variance in most genes is technical noise --\> introduces noise but
+    we don't gain any information
 
 ```{r, HVG_Selec, fig.height=4, fig.width=4}
 pbmc3k <- FindVariableFeatures(pbmc3k)
 
-to.plot <- data.table(means=rowMeans(pbmc3k@assays$RNA@data),
-                      variance=rowVars(pbmc3k@assays$RNA@data),
-                      hvg=(rownames(pbmc3k@assays$RNA@data) %in% VariableFeatures(pbmc3k)))
+to.plot <- data.table(means=rowMeans(pbmc3k@assays$SCT@data),
+                      variance=rowVars(pbmc3k@assays$SCT@data),
+                      hvg=(rownames(pbmc3k@assays$SCT@data) %in% VariableFeatures(pbmc3k)))
 
 p <- ggplot(data=to.plot, mapping = aes(x=means, y=variance, colour=hvg)) +
   geom_point(size=0.5, alpha=1) +
@@ -253,11 +480,33 @@ print(p)
 
 # Scaling the Data
 
+-   Standardisation: All features (genes) have mean of 0 and unit
+    variance
+
+-   Pro: Ensures that high-variance genes don't dominate
+
+-   Cons:
+
+    -   No weighting in how highly variable a gene is, and amplifies
+        more minor variance
+
+    -   Blurs boundaries between subpopulations
+
+    -   Removes log-fold changes
+
+    -   Biases towards number of differentially expressed genes
+
+-   Personally, I think the cons outweigh the pros, but Seurat forces us
+    to use it
+
+-   Further discussion:
+    <https://ltla.github.io/SingleCellThoughts/general/standardization.html>
+
 ```{r, ScaleData, fig.height=4, fig.width=4}
 pbmc3k <- ScaleData(pbmc3k)
 
-means <- rowMeans(pbmc3k@assays$RNA@scale.data)
-variance <- rowVars(pbmc3k@assays$RNA@scale.data)
+means <- rowMeans(pbmc3k@assays$SCT@scale.data)
+variance <- rowVars(pbmc3k@assays$SCT@scale.data)
 p1 <- plot(means, variance)
 print(p1)
 
@@ -270,6 +519,42 @@ print(p2)
 
 # Clustering
 
+## A Side-Note on PCA
+
+-   We do a lot of calculations in "PCA" space
+
+-   Instead of working with each gene individually, they are combined
+    into principle components (PCs)
+
+-   PCs are ordered by how much variance they explain. We only use the
+    top 10-50 PCs --\> removes noise
+
+![![](images/paste-D96C04F8.png){width="267"}](images/paste-0F6F68B1.png){width="327"}
+
+![](images/paste-D6735BA6.png){width="264"}
+
+## Back to Clustering
+
+Why?
+
+-   Sparsity of each individual cell -\> More power in group
+
+-   We want to investigate cell types
+
+How?
+
+-   Reduce dimensionality using PCA first
+
+-   Graph based
+
+-   Popularised by Seurat
+
+-   Several algorithms
+
+-   Build graph using knn or snn
+
+![](images/paste-E5ABED9D.png)
+
 ```{r, Clustering, fig.height=4, fig.width=4}
 pbmc3k <- RunPCA(pbmc3k, verbose=FALSE)
 pbmc3k <- FindNeighbors(pbmc3k, k.param=10, reduction = "pca")
@@ -281,52 +566,64 @@ p <- ggplot(data=as.data.table(pbmc3k@meta.data)[,.N,by="seurat_clusters"], mapp
 print(p)
 ```
 
-# Cluster Marker Genes
+# Visualisation
+
+We like seeing our data, but scRNA-seq data is high dimensional and
+humans struggle beyond 2. Therefore, we want to reduce our data to 2
+dimensions:
+
+-   Could use PCA
+
+-   Could use t-SNE: Maintains local distances
+
+-   Could use UMAP: Fits a manifold
+
+-   State of the art: PCA followed by UMAP
+
+```{r, Visualisation1, fig.height=4, fig.width=4}
+pbmc3k <- RunUMAP(pbmc3k, dims = 1:10)
+DimPlot(pbmc3k, reduction = "umap")
+```
+
+# Celltype Annotation
+
+## Method 1: Using Marker Genes
 
 ```{r, MarkerGenes}
 cluster1.markers <- FindMarkers(pbmc3k, ident.1 = 1, min.pct = 0.25)
 head(cluster1.markers, n = 5)
 ```
 
-Luckily, in this dataset we know the cell types very well and have known marker genes. From [the vignette](https://satijalab.org/seurat/v3.2/pbmc3k_tutorial.html):
+Luckily, in this dataset we know the cell types very well and have known
+marker genes. From [the
+vignette](https://satijalab.org/seurat/v3.2/pbmc3k_tutorial.html):
 
-| Markers	| Cell Type |
-|---|---|
-| IL7R, CCR7	| Naive CD4+ T |
-| IL7R, S100A4	| Memory CD4+ |
-| CD14, LYZ	| CD14+ Mono |
-| MS4A1	| B |
-| CD8A	| CD8+ T |
-| FCGR3A, MS4A7	FCGR3A+ | Mono |
-| GNLY, NKG7	| NK |
-| FCER1A, CST3	| DC |
-| PPBP	| Platelet |
+| Markers               | Cell Type    |
+|-----------------------|--------------|
+| IL7R, CCR7            | Naive CD4+ T |
+| IL7R, S100A4          | Memory CD4+  |
+| CD14, LYZ             | CD14+ Mono   |
+| MS4A1                 | B            |
+| CD8A                  | CD8+ T       |
+| FCGR3A, MS4A7 FCGR3A+ | Mono         |
+| GNLY, NKG7            | NK           |
+| FCER1A, CST3          | DC           |
+| PPBP                  | Platelet     |
 
 Based on this, Seurat has already annotated the cells. Let's visualise.
 Do they agree with our clusters? Why not?
 
-# Visualisation
-
-```{r, Visualisation1, fig.height=4, fig.width=4}
-pbmc3k <- RunUMAP(pbmc3k, dims = 1:10)
+```{r, Visualisation1, fig.height=4, fig.width=6}
 DimPlot(pbmc3k, reduction = "umap")
 DimPlot(pbmc3k, reduction = "umap", group.by = "seurat_annotations")
 ```
 
-```{r, Visualisation2, fig.height=20, fig.width=20}
-FeaturePlot(pbmc3k, features = c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP", 
-    "CD8A"))
-```
+### Side note: Differential Expression Testing
 
-# SHINY
+DONNACHA, DO YOU WANT TO DO THIS? Otherwise I can.
 
-Finally, let's export our metadata for your next practical!
+## Method 2: Using a Reference Atlas
 
-```{r, ExportMetaData}
-feats <- as.data.table(t(pbmc3k@assays$RNA@data[c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP", "CD8A"),]))
-for_shiny <- cbind(as.data.table(pbmc3k@meta.data), feats)
-umap_coords <- as.data.table(pbmc3k@reductions$umap@cell.embeddings)
-for_shiny <- cbind(for_shiny, umap_coords)
-saveRDS(for_shiny, "sc_output.rds")
-```
+LEAH TO DO
 
+This applies to batch effect correction too.
