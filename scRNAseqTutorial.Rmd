@@ -74,7 +74,7 @@ First, we want to import the packages we will be using.
 library(Seurat)
 library(SeuratData)
 library(gridExtra)
-library(ggplot2)
+library(tidyverse)
 library(data.table)
 library(SingleCellExperiment)
 library(scds)
@@ -152,7 +152,9 @@ This dataset:
 class "Seurat"" is totally normal. Don't worry if you get that.**
 
 ```{r, Data}
-data("pbmc3k")
+data("pbmc3k") # Or, alternatively:
+# pbmc.data <- Read10X(data.dir = "filtered_gene_bc_matrices/hg19/")
+# pbmc3k <- CreateSeuratObject(counts = pbmc.data, project = "pbmc3k", min.cells = 3, min.features = 200)
 pbmc3k
 ```
 
@@ -440,7 +442,7 @@ pbmc3k <- SCTransform(pbmc3k, method="glmGamPoi",verbose=FALSE)
 #pbmc3k <- NormalizeData(pbmc3k, normalization.method = "LogNormalize")
 
 means <- rowMeans(pbmc3k@assays$SCT@data)
-variance <- rowVars(pbmc3k@assays$SCT@data)
+variance <- rowVars(as.matrix(pbmc3k@assays$SCT@data))
 p <- plot(means, variance)
 print(p)
 ```
@@ -468,7 +470,7 @@ print(p)
 pbmc3k <- FindVariableFeatures(pbmc3k)
 
 to.plot <- data.table(means=rowMeans(pbmc3k@assays$SCT@data),
-                      variance=rowVars(pbmc3k@assays$SCT@data),
+                      variance=rowVars(as.matrix(pbmc3k@assays$SCT@data)),
                       hvg=(rownames(pbmc3k@assays$SCT@data) %in% VariableFeatures(pbmc3k)))
 
 p <- ggplot(data=to.plot, mapping = aes(x=means, y=variance, colour=hvg)) +
@@ -589,7 +591,7 @@ dimensions:
 
 ```{r, Visualisation1, fig.height=4, fig.width=4}
 pbmc3k <- RunUMAP(pbmc3k, dims = 1:10)
-DimPlot(pbmc3k, reduction = "umap")
+DimPlot(pbmc3k, reduction = "umap", pt.size = 0.1, shuffle = TRUE) + coord_fixed()
 ```
 
 ## Discussion
@@ -631,16 +633,133 @@ Based on this, Seurat has already annotated the cells. Let's visualise.
 Do they agree with our clusters? Why not?
 
 ```{r, Visualisation1, fig.height=4, fig.width=6}
-DimPlot(pbmc3k, reduction = "umap")
-DimPlot(pbmc3k, reduction = "umap", group.by = "seurat_annotations")
+DimPlot(pbmc3k, reduction = "umap", pt.size = 0.1, shuffle = TRUE) + coord_fixed()
+DimPlot(pbmc3k, reduction = "umap", group.by = "seurat_annotations", pt.size = 0.1, shuffle = TRUE) + coord_fixed()
 ```
 
-### Side note: Differential Expression Testing
+### Differential Expression Testing
 
-DONNACHA, DO YOU WANT TO DO THIS? Otherwise I can.
+Clusters are just groups of cells which have roughly similar gene 
+expression profiles to each other. Clusters can represent:
 
-Pseudobulk in edgeR. Why not all vs all (not independent replicates,
-absurdly small p-values)
+-   Cell type, or subtype (we often want this)
+
+-   Cell cycle phase
+
+-   Doublets (remove)
+
+-   Stripped nuclei/dead cells (remove)
+
+-   Batch/sample (can "correct")
+
+-   A combination of the above
+
+To interpret the meaning of these clusters, we must put our detective
+hats on and find out what genes/gene patterns define them. There are 
+several metrics for which genes best characterize each cluster. Here, 
+we discuss two different approaches:
+
+A: Difference in average expression
+
+A popular approach is to compare differences in average expression 
+for each gene in one cluster vs all other clusters. The significance
+of these differences can be assessed, for example, with the Wilcoxon
+Rank Sum test. However, the large number of cells often leads to 
+exaggerated p-values and fold-change is heavily influenced by outliers,
+or genes which may only characterize a small portion of a cluster.
+
+```{r}
+# Wilcox test for differentially expressed genes. May take 20-30s.
+FCmarkers <- FindAllMarkers(pbmc3k, logfc.threshold = 0.25, test.use = "wilcox", min.pct = 0.25)
+FCmarkers %>% group_by(cluster) %>% top_n(n = 10, wt = -p_val_adj)
+```
+Note that both positively and negatively differentially expressed genes are identified. 
+avg_log2FC shows the fold-change in mean expression, whereas p_val_adj indicates the 
+significance.
+
+
+```{r}
+# Marker heatmap
+topFCmarkers <- FCmarkers %>% group_by(cluster) %>% top_n(n = 3, wt = -p_val_adj)
+DoHeatmap(pbmc3k, features = topFCmarkers$gene, slot = 'scale.data', disp.max = 3)
+```
+```{r}
+# Log fold change of main cluster markers
+ggplot(topFCmarkers, aes(x = gene, y = avg_log2FC, fill = gene)) +
+  geom_col() +
+  theme_bw() +
+    facet_grid(. ~ cluster, scales = "free") +
+  RotatedAxis() +
+  NoLegend() +
+  theme(text = element_text(size=8))
+```
+B: ROC analysis
+
+Aside from testing differences in average expression, which is prone
+to identifying markers which may not represent the cluster's full 
+population, another approach to identifying cluster markers is to
+ask which genes can be used to best classify cells in each cluster from 
+all remaining cells. For this, we borrow a simple measurement from
+supervised learning: the area under the ROC curve (TPR vs FPR).
+
+```{r}
+# Test area under the ROC curve for markers for each cluster. May take 20-30s.
+ROCmarkers <- FindAllMarkers(pbmc3k, logfc.threshold = 0.25, test.use = "roc", min.pct = 0.25)
+ROCmarkers %>% group_by(cluster) %>% top_n(n = 10, wt = myAUC)
+```
+
+An AUC of 1 represents a perfect positive classifier (positive only 
+on all cells in the cluster), while an AUC of 0 represents a perfect 
+negative classifier (negative/absent only on all cells in the cluster). 
+An AUC of 0.5 means the gene has no classification power. 
+
+```{r}
+# Marker heatmap
+topROCmarkers <- ROCmarkers %>% group_by(cluster) %>% top_n(n = 3, wt = myAUC)
+DoHeatmap(pbmc3k, features = topROCmarkers$gene, slot = 'scale.data', disp.max = 3)
+```
+Note minor differences in the markers identified by ROC vs Wilcox
+
+```{r}
+# Area under the ROC curve of main cluster markers
+ggplot(topROCmarkers, aes(x = gene, y = myAUC, fill = gene)) +
+  geom_col() +
+  theme_bw() +
+    facet_grid(. ~ cluster, scales = "free") +
+  RotatedAxis() +
+  NoLegend() +
+  theme(text = element_text(size=8))
+```
+Note that for each cluster, there are moderate-to-strong positive classifiers.
+See if you can use these to guess the identity of each cluster (no, not Colonel
+Mustard...)
+
+Which method you use to identify cluster markers also depends on your
+goals...
+
+
+### Exploring Known Celltype Markers
+
+Since we already know the major PBMC cell types and their markers,
+we can directly use these to characterize our clusters.
+
+| Markers               | Cell Type    |
+|-----------------------|--------------|
+| IL7R, CCR7            | Naive CD4+ T |
+| IL7R, S100A4          | Memory CD4+  |
+| CD14, LYZ             | CD14+ Mono   |
+| MS4A1                 | B            |
+| CD8A                  | CD8+ T       |
+| FCGR3A, MS4A7 FCGR3A+ | Mono         |
+| GNLY, NKG7            | NK           |
+| FCER1A, CST3          | DC           |
+| PPBP                  | Platelet     |
+
+```{r}
+markers.to.plot <- c("IL7R", "CCR7", "S100A4", "CD14", "LYZ", "MS4A1", "CD8A", "FCGR3A", "MS4A7", "GNLY", "NKG7", "FCER1A", "CST3", "PPBP")
+DotPlot(pbmc3k, features = markers.to.plot, cols = c("blue", "red"), dot.scale = 10, cluster.idents = T) + RotatedAxis()
+```
+Now try assigning the clusters to cell types...
 
 ## Method 2: Using a Reference Atlas
 
