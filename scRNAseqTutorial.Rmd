@@ -398,54 +398,100 @@ rownames(md) <- md$cell
     Genes with high means, vary a lot regardless of whether they are
     biologically meaningful in your system
 
--   Basic method is log normalisation:
+```{r, Mean_Variance_Relationship, fig.height=4, fig.width=4}
+means <- sparseMatrixStats::rowMeans2(pbmc3k@assays$RNA@counts)
+variance <- sparseMatrixStats::rowVars(pbmc3k@assays$RNA@counts)
+plot(means, variance)
+```
 
-    -   Stabilises variance (no need for complex statistical models
-        downstream)
 
-    -   Enables normal assumptions in downstream methods
+![](images/mean-variance-relation-single-cell.png)
 
-    -   Further discussion:
-        <https://ltla.github.io/SingleCellThoughts/general/transformation.html>
+-   The mean-variance relation matches a Gamma-Poisson distribution
 
--   Another approach is modelling the distribution the data came from:
-    Negative Binomial or Gamma-Poisson
+
+-  The statistically most robust approach to handle such data are generalized linear models (GLMs),
+   for example implemented by `DESeq2`, `edgeR`, or `glmGamPoi`. However they can be difficult to
+   fit and exclude the application of many general purpose methods for clustering, dimension reduction
+   and classification
+   
+-  The alternative is to try to _normalize_ the data. This mainly implies 
+   that the mean and variance become independent (homo-skedastic). That is why this step is also 
+   called __variance stabilizing transformation__ (VST).
+   
+   
+-   The most basic method is log normalisation:
+
+    -   Kind of stabilises the variance
+    
+    -   but not really...
+    
+```{r, Normalisation, fig.height=4, fig.width=4}
+pbmc3k <- NormalizeData(pbmc3k, normalization.method = "LogNormalize")
+
+means <- sparseMatrixStats::rowMeans2(pbmc3k@assays$SCT@data)
+variance <- sparseMatrixStats::rowVars(pbmc3k@assays$SCT@data)
+plot(means, variance)
+```   
+
+-    Alternative VSTs are based on the delta-method
+
+-   Two popular alternatives
+
+      -   Ascombe's transformation: $2 \sqrt{x}$
+      
+      -   DESeq2's transformation: $\frac{1}{\sqrt{\alpha}} \text{asinh}(\sqrt\alpha x)$
+      
+-   Not actually much more successful because all struggle to stabilize small counts (and always will see Warton (2018))
+      
+```{r}
+# Fix it to kind of reasonable value
+alpha <- 0.1
+stab_data <- 1 / sqrt(alpha) * asinh(sqrt(alpha) * pbmc3k@assays$SCT@data)
+
+means <- sparseMatrixStats::rowMeans2(stab_data)
+variance <- sparseMatrixStats::rowVars(stab_data)
+plot(means, variance)
+```
+      
+-   Third apporach: `sctransform`
+
+     -   Based on pearson residuals
+     
+     -   Trade's off stabilization at small means for potentially reduced 
+         sensitivity for real biological differences
+         
+     -   Worked quite well in a recent benchmark (Germain et al. 2020)
+
+```{r, Normalisation, fig.height=4, fig.width=4}
+pbmc3k <- SCTransform(pbmc3k, method="glmGamPoi",verbose=FALSE)
+
+means <- sparseMatrixStats::rowMeans2(pbmc3k@assays$SCT@data)
+variance <- sparseMatrixStats::rowVars(pbmc3k@assays$SCT@data)
+plot(means, variance)
+```
 
 -   Scaling
+
+```{r}
+hist(sparseMatrixStats::colSums2(pbmc3k@assays$SCT@data), main = "Counts per Cell")
+```
+
+    -   Goal: remove library size-dependent differences in variance
 
     -   Seurat also scales each cell's counts by a scale factor before
         normalisation
 
     -   scran uses more sophisticated methods of estimating scale factor
+    
+    -   sctransform treats them a bit weirdly, but you can just suppose that they are handled as size factors
 
-    -   Goal: remove library size-dependent differences in variance
 
-    -   References:
 
-        -   Hafemeister and Satija, 2019 (Genome Biology)
 
-        -   <https://bioconductor.org/packages/release/bioc/vignettes/scran/inst/doc/scran.html#3_Normalizing_cell-specific_biases>
+-   For somebody else's take on the topic see: https://ltla.github.io/SingleCellThoughts/general/transformation.html
 
-        -   Lun, Bach, and Marioni, 2016 (Genome Biology)
 
--   NOTE CONSTANTIN CAN YOU CONTINUE THIS PART? Does SCTransform scale?
-
-```{r, Mean_Variance_Relationship, fig.height=4, fig.width=4}
-means <- rowMeans(as.matrix(pbmc3k@assays$RNA@counts))
-variance <- rowVars(as.matrix(pbmc3k@assays$RNA@counts))
-p1 <- plot(means, variance)
-print(p1)
-```
-
-```{r, Normalisation, fig.height=4, fig.width=4}
-pbmc3k <- SCTransform(pbmc3k, method="glmGamPoi",verbose=FALSE)
-#pbmc3k <- NormalizeData(pbmc3k, normalization.method = "LogNormalize")
-
-means <- rowMeans(pbmc3k@assays$SCT@data)
-variance <- rowVars(as.matrix(pbmc3k@assays$SCT@data))
-p <- plot(means, variance)
-print(p)
-```
 
 ## Discussion
 
