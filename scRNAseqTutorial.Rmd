@@ -3,9 +3,9 @@ title: "scRNA-seq Tutorial"
 author: "Leah Rosen, Donnacha Fitzgerald, Constantin Ahlmann-Eltze"
 date: "04/03/2021"
 output:
-  pdf_document: default
   html_document:
     df_print: paged
+  pdf_document: default
 editor_options: 
   markdown: 
     wrap: 72
@@ -89,7 +89,7 @@ A typical scRNA-seq pipeline involves 4 preprocessing steps
 
 2.  Variance Stabilising Transformation
 
-3.  Highly Variable Gene Selection **\<- CONSTANTIN PLEASE EDIT**
+3.  Highly Variable Gene Selection
 
 4.  Optional: Scaling
 
@@ -103,12 +103,11 @@ Further steps that we can do with the data are:
 
 -   Celltype Assignment. 2 Approaches:
 
-    -   Marker Gene Selection **\<- DONNACHA? + a side-note on DE
-        analysis**
+    -   Marker Gene Selection
 
     -   Reference-based
 
--   Data integration/Batch Effect Correction \<- **LEAH TO DO**
+-   Data integration/Batch Effect Correction
 
 # Load data
 
@@ -132,9 +131,10 @@ We will be working with a toy dataset from 10X Genomics.
 
     -   UMI control for PCR amplification bias
 
-![](images/paste-646D5F77.png)
+![A count matrix](images/CountMatrix.png){width="174"}
 
-![](images/paste-07150A5C.png){width="225"}
+![A schematic of poly-adenylated mRNA of different colours (i.e. genes)
+in a cell](images/Cell.png){width="225"}
 
 This dataset:
 
@@ -146,7 +146,8 @@ This dataset:
 
 -   Note: This is a toy dataset, down-sampled so everything runs quickly
 
-![](images/paste-1020755D.png)
+![Seurat's UMAP visualisation and celltype
+annotation](images/PBMC3KUMAP_seurat.png)
 
 **Note: getting the error: "no slot of name "images" for this object of
 class "Seurat"" is totally normal. Don't worry if you get that.**
@@ -544,11 +545,13 @@ print(p)
     -   No weighting in how highly variable a gene is, and amplifies
         more minor variance
 
-    -   Blurs boundaries between subpopulations
+    -   Blurs boundaries between subpopulations (especially when the
+        gene has \>2 states)
 
     -   Removes log-fold changes
 
-    -   Biases towards number of differentially expressed genes
+    -   Biases towards number of differentially expressed genes (vs.
+        amplitude of difference in expression)
 
 -   Personally, I think the cons outweigh the pros, but Seurat forces us
     to use it. To avoid it, Donnacha has a hack.
@@ -584,9 +587,13 @@ print(p2)
 -   PCs are ordered by how much variance they explain. We only use the
     top 10-50 PCs --\> removes noise
 
-![![](images/paste-D96C04F8.png){width="267"}](images/paste-0F6F68B1.png){width="327"}
+![Projection of datapoints onto a
+PC](images/pca_projection.jpg){width="267"}
 
-![](images/paste-D6735BA6.png){width="264"}
+![The 2 PCs for 2D data](images/pca_2pcs.png){width="327"}
+
+![An elbow plot showing decreasing amounts of variance explained per
+PC](images/ElbowPlot.png){width="264"}
 
 ## Back to Clustering
 
@@ -608,7 +615,8 @@ How?
 
 -   Build graph using knn or snn
 
-![](images/paste-E5ABED9D.png)
+![Schematic of Louvain Clustering, a commonly-used graph-based algorithm
+for clustering single cell data](images/Louvain.png)
 
 ```{r, Clustering, fig.height=4, fig.width=4}
 pbmc3k <- RunPCA(pbmc3k, verbose=FALSE)
@@ -678,14 +686,14 @@ vignette](https://satijalab.org/seurat/v3.2/pbmc3k_tutorial.html):
 Based on this, Seurat has already annotated the cells. Let's visualise.
 Do they agree with our clusters? Why not?
 
-```{r, Visualisation1, fig.height=4, fig.width=6}
+```{r, Visualisation2, fig.height=4, fig.width=6}
 DimPlot(pbmc3k, reduction = "umap", pt.size = 0.1, shuffle = TRUE) + coord_fixed()
 DimPlot(pbmc3k, reduction = "umap", group.by = "seurat_annotations", pt.size = 0.1, shuffle = TRUE) + coord_fixed()
 ```
 
 ### Differential Expression Testing
 
-Clusters are just groups of cells which have roughly similar gene 
+Clusters are just groups of cells which have roughly similar gene
 expression profiles to each other. Clusters can represent:
 
 -   Cell type, or subtype (we often want this)
@@ -701,34 +709,35 @@ expression profiles to each other. Clusters can represent:
 -   A combination of the above
 
 To interpret the meaning of these clusters, we must put our detective
-hats on and find out what genes/gene patterns define them. There are 
-several metrics for which genes best characterize each cluster. Here, 
-we discuss two different approaches:
+hats on and find out what genes/gene patterns define them. There are
+several metrics for which genes best characterize each cluster. Here, we
+discuss two different approaches:
 
 A: Difference in average expression
 
-A popular approach is to compare differences in average expression 
-for each gene in one cluster vs all other clusters. The significance
-of these differences can be assessed, for example, with the Wilcoxon
-Rank Sum test. However, the large number of cells often leads to 
-exaggerated p-values and fold-change is heavily influenced by outliers,
-or genes which may only characterize a small portion of a cluster.
+A popular approach is to compare differences in average expression for
+each gene in one cluster vs all other clusters. The significance of
+these differences can be assessed, for example, with the Wilcoxon Rank
+Sum test. However, the large number of cells often leads to exaggerated
+p-values and fold-change is heavily influenced by outliers, or genes
+which may only characterize a small portion of a cluster.
 
 ```{r}
 # Wilcox test for differentially expressed genes. May take 20-30s.
 FCmarkers <- FindAllMarkers(pbmc3k, logfc.threshold = 0.25, test.use = "wilcox", min.pct = 0.25)
 FCmarkers %>% group_by(cluster) %>% top_n(n = 10, wt = -p_val_adj)
 ```
-Note that both positively and negatively differentially expressed genes are identified. 
-avg_log2FC shows the fold-change in mean expression, whereas p_val_adj indicates the 
-significance.
 
+Note that both positively and negatively differentially expressed genes
+are identified. avg_log2FC shows the fold-change in mean expression,
+whereas p_val_adj indicates the significance.
 
 ```{r}
 # Marker heatmap
 topFCmarkers <- FCmarkers %>% group_by(cluster) %>% top_n(n = 3, wt = -p_val_adj)
 DoHeatmap(pbmc3k, features = topFCmarkers$gene, slot = 'scale.data', disp.max = 3)
 ```
+
 ```{r}
 # Log fold change of main cluster markers
 ggplot(topFCmarkers, aes(x = gene, y = avg_log2FC, fill = gene)) +
@@ -739,13 +748,14 @@ ggplot(topFCmarkers, aes(x = gene, y = avg_log2FC, fill = gene)) +
   NoLegend() +
   theme(text = element_text(size=8))
 ```
+
 B: ROC analysis
 
-Aside from testing differences in average expression, which is prone
-to identifying markers which may not represent the cluster's full 
-population, another approach to identifying cluster markers is to
-ask which genes can be used to best classify cells in each cluster from 
-all remaining cells. For this, we borrow a simple measurement from
+Aside from testing differences in average expression, which is prone to
+identifying markers which may not represent the cluster's full
+population, another approach to identifying cluster markers is to ask
+which genes can be used to best classify cells in each cluster from all
+remaining cells. For this, we borrow a simple measurement from
 supervised learning: the area under the ROC curve (TPR vs FPR).
 
 ```{r}
@@ -754,16 +764,17 @@ ROCmarkers <- FindAllMarkers(pbmc3k, logfc.threshold = 0.25, test.use = "roc", m
 ROCmarkers %>% group_by(cluster) %>% top_n(n = 10, wt = myAUC)
 ```
 
-An AUC of 1 represents a perfect positive classifier (positive only 
-on all cells in the cluster), while an AUC of 0 represents a perfect 
-negative classifier (negative/absent only on all cells in the cluster). 
-An AUC of 0.5 means the gene has no classification power. 
+An AUC of 1 represents a perfect positive classifier (positive only on
+all cells in the cluster), while an AUC of 0 represents a perfect
+negative classifier (negative/absent only on all cells in the cluster).
+An AUC of 0.5 means the gene has no classification power.
 
 ```{r}
 # Marker heatmap
 topROCmarkers <- ROCmarkers %>% group_by(cluster) %>% top_n(n = 3, wt = myAUC)
 DoHeatmap(pbmc3k, features = topROCmarkers$gene, slot = 'scale.data', disp.max = 3)
 ```
+
 Note minor differences in the markers identified by ROC vs Wilcox
 
 ```{r}
@@ -776,18 +787,18 @@ ggplot(topROCmarkers, aes(x = gene, y = myAUC, fill = gene)) +
   NoLegend() +
   theme(text = element_text(size=8))
 ```
-Note that for each cluster, there are moderate-to-strong positive classifiers.
-See if you can use these to guess the identity of each cluster (no, not Colonel
-Mustard...)
+
+Note that for each cluster, there are moderate-to-strong positive
+classifiers. See if you can use these to guess the identity of each
+cluster (no, not Colonel Mustard...)
 
 Which method you use to identify cluster markers also depends on your
 goals...
 
-
 ### Exploring Known Celltype Markers
 
-Since we already know the major PBMC cell types and their markers,
-we can directly use these to characterize our clusters.
+Since we already know the major PBMC cell types and their markers, we
+can directly use these to characterize our clusters.
 
 | Markers               | Cell Type    |
 |-----------------------|--------------|
@@ -805,10 +816,97 @@ we can directly use these to characterize our clusters.
 markers.to.plot <- c("IL7R", "CCR7", "S100A4", "CD14", "LYZ", "MS4A1", "CD8A", "FCGR3A", "MS4A7", "GNLY", "NKG7", "FCER1A", "CST3", "PPBP")
 DotPlot(pbmc3k, features = markers.to.plot, cols = c("blue", "red"), dot.scale = 10, cluster.idents = T) + RotatedAxis()
 ```
+
 Now try assigning the clusters to cell types...
 
 ## Method 2: Using a Reference Atlas
 
-LEAH TO DO
+Another method is to use previously annotated, similar datasets. Such
+high-quality, annotated datasets are known as "atlases". Big projects,
+perhaps most notably the [human cell
+atlas](https://www.humancellatlas.org/), exist to create such atlases
+that can be used to annotate and compare future datasets. Usually, these
+atlases are healthy/unperturbed/*in vivo* samples, which you can map
+your diseased/perturbed/(in my case) organoid samples to.
 
-This applies to batch effect correction too.
+Assigning celltypes using a reference atlas, requires you to integrate
+your data with the reference atlas. There are many ways to do this, and
+I recommend [Luecken *et al.*,
+2020](https://www.biorxiv.org/content/10.1101/2020.05.22.111161v2) for a
+good overview and analysis. Different methods can give drastically
+different results, and even how you preprocess the data can affect
+results.
+
+In short:
+
+-   Batch effects are technical variance in gene expression that exist
+    between samples. These can be large or small:
+
+    -   Small: e.g. replicates processed by the same researcher on
+        different days
+
+    -   Large: e.g. samples processed with different technologies in
+        different species in different labs
+
+    -   ==\> Depending on how similar your data are to the atlas, your
+        batch effects could vary in size
+
+-   Data integration methods attempt to estimate the batch effect for
+    each cell, and apply a correction vector to each
+
+    -   However, it's very hard to disentangle technical and biological
+        variance in high dimensions
+
+    -   Some methods assume more, others less technical variance
+
+    -   Advice: Be critical: Some methods may not remove batch effects
+        sufficiently, while others may remove too much
+
+-   Miscellaneous advice:
+
+    -   These methods always give you a celltype annotation! It's very
+        hard to say if it's a good annotation or not. Look at marker
+        genes to check (but this is a very hard question).
+
+    -   Just because your two samples don't overlap well on a UMAP after
+        integration, doesn't mean that they mapped poorly (though it's
+        certainly something to be on the lookout for)
+
+    -   Integrate the atlas first, and then map your samples to the
+        atlas
+
+    -   When integrating the atlas, integrate within a timepoint, and
+        then across timepoints
+
+    -   Integrate each of your samples with the atlas separately
+
+![Schematic of how MNN (Haghverdi et al., 2018), a method for batch
+effect correction, works. This illustrates the underlying principle
+nicely.](images/MNN.png){width="272"}
+
+![Integrating an atlas of mouse gastrulation (Pijuan-Sala et al., 2019)
+with two methods: fastMNN (left) and Seurat (right). Seurat removes more
+variance than MNN, merging batches across timepoints, and blurring
+celltypes (especially epiblast, primitive streak, and
+brain).](images/Overintegration.png)
+
+# Batch effect correction
+
+Similar to reference mapping, if you are analysing separate samples, you
+may have batch effects between samples.
+
+Do you have batch effects?
+
+-   Were your samples generated from the same pool of cells on the same
+    day, just in separate 10X lanes? Then you probably don't have to
+    batch effect correct (though some people still do)
+
+-   Otherwise: YES!
+
+Apart from this, the same methods as above are used, and thus the same
+advice still applies:
+
+-   Try several methods
+
+-   Check if meaningful biological variance is being removed
+    ("over-integration")
