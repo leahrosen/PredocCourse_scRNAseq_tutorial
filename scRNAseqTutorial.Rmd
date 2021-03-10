@@ -405,7 +405,7 @@ variance <- sparseMatrixStats::rowVars(pbmc3k@assays$RNA@counts)
 plot(means, variance)
 ```
 
-![](images/mean-variance-relation-single-cell.png)
+![](images/mean-variance-relation-single-cell.png){width="317"}
 
 -   The mean-variance relation matches a Gamma-Poisson distribution
 
@@ -558,7 +558,7 @@ print(p)
 
 ```{r, ScaleData, fig.height=4, fig.width=4}
 pbmc3k <- ScaleData(pbmc3k)
-#pbmc3k@assays$SCT@scale.data <- pbmc3k@assays$SCT@data@x
+#pbmc3k@assays$SCT@scale.data <- as.matrix(pbmc3k@assays$SCT@data)
 
 means <- rowMeans(pbmc3k@assays$SCT@scale.data)
 variance <- rowVars(pbmc3k@assays$SCT@scale.data)
@@ -879,7 +879,7 @@ In short:
 
 ![Schematic of how MNN (Haghverdi et al., 2018), a method for batch
 effect correction, works. This illustrates the underlying principle
-nicely.](images/MNN.png){width="272"}
+nicely.](images/MNN.png){width="504"}
 
 ![Integrating an atlas of mouse gastrulation (Pijuan-Sala et al., 2019)
 with two methods: fastMNN (left) and Seurat (right). Seurat removes more
