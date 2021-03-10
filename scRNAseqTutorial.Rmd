@@ -3,9 +3,9 @@ title: "scRNA-seq Tutorial"
 author: "Leah Rosen, Donnacha Fitzgerald, Constantin Ahlmann-Eltze"
 date: "04/03/2021"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
-  pdf_document: default
 editor_options: 
   markdown: 
     wrap: 72
@@ -405,64 +405,65 @@ variance <- sparseMatrixStats::rowVars(pbmc3k@assays$RNA@counts)
 plot(means, variance)
 ```
 
-
 ![](images/mean-variance-relation-single-cell.png)
 
 -   The mean-variance relation matches a Gamma-Poisson distribution
 
+-   The statistically most robust approach to handle such data are
+    generalized linear models (GLMs), for example implemented by
+    `DESeq2`, `edgeR`, or `glmGamPoi`. However they can be difficult to
+    fit and exclude the application of many general purpose methods for
+    clustering, dimension reduction and classification
 
--  The statistically most robust approach to handle such data are generalized linear models (GLMs),
-   for example implemented by `DESeq2`, `edgeR`, or `glmGamPoi`. However they can be difficult to
-   fit and exclude the application of many general purpose methods for clustering, dimension reduction
-   and classification
-   
--  The alternative is to try to _normalize_ the data. This mainly implies 
-   that the mean and variance become independent (homo-skedastic). That is why this step is also 
-   called __variance stabilizing transformation__ (VST).
-   
-   
+-   The alternative is to try to *normalize* the data. This mainly
+    implies that the mean and variance become independent
+    (homo-skedastic). That is why this step is also called **variance
+    stabilizing transformation** (VST).
+
 -   The most basic method is log normalisation:
 
     -   Kind of stabilises the variance
-    
+
     -   but not really...
-    
-```{r, Normalisation, fig.height=4, fig.width=4}
+
+```{r, LogNormalisation, fig.height=4, fig.width=4}
 pbmc3k <- NormalizeData(pbmc3k, normalization.method = "LogNormalize")
 
-means <- sparseMatrixStats::rowMeans2(pbmc3k@assays$SCT@data)
-variance <- sparseMatrixStats::rowVars(pbmc3k@assays$SCT@data)
+means <- sparseMatrixStats::rowMeans2(as.matrix(pbmc3k@assays$RNA@data))
+variance <- sparseMatrixStats::rowVars(pbmc3k@assays$RNA@data)
 plot(means, variance)
-```   
+```
 
--    Alternative VSTs are based on the delta-method
+-   Alternative VSTs are based on the delta-method
 
 -   Two popular alternatives
 
-      -   Ascombe's transformation: $2 \sqrt{x}$
-      
-      -   DESeq2's transformation: $\frac{1}{\sqrt{\alpha}} \text{asinh}(\sqrt\alpha x)$
-      
--   Not actually much more successful because all struggle to stabilize small counts (and always will see Warton (2018))
-      
+    -   Ascombe's transformation: $2 \sqrt{x}$
+
+    -   DESeq2's transformation:
+        $\frac{1}{\sqrt{\alpha}} \text{asinh}(\sqrt\alpha x)$
+
+-   Not actually much more successful because all struggle to stabilize
+    small counts (and always will see Warton (2018))
+
 ```{r}
 # Fix it to kind of reasonable value
 alpha <- 0.1
-stab_data <- 1 / sqrt(alpha) * asinh(sqrt(alpha) * pbmc3k@assays$SCT@data)
+stab_data <- 1 / sqrt(alpha) * asinh(sqrt(alpha) * pbmc3k@assays$RNA@data)
 
 means <- sparseMatrixStats::rowMeans2(stab_data)
 variance <- sparseMatrixStats::rowVars(stab_data)
 plot(means, variance)
 ```
-      
+
 -   Third apporach: `sctransform`
 
-     -   Based on pearson residuals
-     
-     -   Trade's off stabilization at small means for potentially reduced 
-         sensitivity for real biological differences
-         
-     -   Worked quite well in a recent benchmark (Germain et al. 2020)
+    -   Based on pearson residuals
+
+    -   Trade's off stabilization at small means for potentially reduced
+        sensitivity for real biological differences
+
+    -   Worked quite well in a recent benchmark (Germain et al. 2020)
 
 ```{r, Normalisation, fig.height=4, fig.width=4}
 pbmc3k <- SCTransform(pbmc3k, method="glmGamPoi",verbose=FALSE)
@@ -484,15 +485,11 @@ hist(sparseMatrixStats::colSums2(pbmc3k@assays$SCT@data), main = "Counts per Cel
         normalisation
 
     -   scran uses more sophisticated methods of estimating scale factor
-    
+
     -   sctransform treats them a bit weirdly, but you can just suppose that they are handled as size factors
 
-
-
-
--   For somebody else's take on the topic see: https://ltla.github.io/SingleCellThoughts/general/transformation.html
-
-
+-   For somebody else's take on the topic see:
+    <https://ltla.github.io/SingleCellThoughts/general/transformation.html>
 
 ## Discussion
 
